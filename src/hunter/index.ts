@@ -6,6 +6,8 @@ import { hasEnteredGiveaway, recordEntry, updateDailyStats } from '../utils/stat
 import { sleep, truncate, tweetUrl } from '../utils/helpers';
 import { logger } from '../utils/logger';
 import { GIVEAWAY_QUERIES } from './queries';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // ─────────────────────────────────────────────────────────────
 // Filter posts by quality thresholds
@@ -16,11 +18,69 @@ function meetsQualityThreshold(post: GiveawayPost, config: HunterConfig): boolea
     logger.debug(`Post ${post.id} skipped: ${post.likes} likes < min ${config.minPostLikes}`);
     return false;
   }
+  // Scraped fallback often cannot reliably provide follower counts.
+  // Treat 0 as "unknown" and avoid rejecting otherwise good giveaway posts.
+  if (post.authorFollowers <= 0) {
+    logger.debug(`Post ${post.id} has unknown follower count; skipping follower threshold check`);
+    return true;
+  }
   if (post.authorFollowers < config.minPosterFollowers) {
     logger.debug(`Post ${post.id} skipped: author has ${post.authorFollowers} followers < min ${config.minPosterFollowers}`);
     return false;
   }
   return true;
+}
+
+function dumpSearchSnapshot(
+  queries: string[],
+  allCandidates: GiveawayPost[],
+  uniqueCandidates: GiveawayPost[],
+  stages: {
+    afterGiveawayFilter: GiveawayPost[];
+    afterQualityFilter: GiveawayPost[];
+    afterNotEnteredFilter: GiveawayPost[];
+  }
+): void {
+  try {
+    const dumpDir = path.join(process.cwd(), 'data', 'debug');
+    fs.mkdirSync(dumpDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const dumpPath = path.join(dumpDir, `search-posts-${stamp}.json`);
+
+    const giveawayPassedIds = new Set(stages.afterGiveawayFilter.map((p) => p.id));
+    const qualityPassedIds = new Set(stages.afterQualityFilter.map((p) => p.id));
+    const notEnteredPassedIds = new Set(stages.afterNotEnteredFilter.map((p) => p.id));
+
+    const payload = {
+      createdAt: new Date().toISOString(),
+      queries,
+      counts: {
+        fetched: allCandidates.length,
+        unique: uniqueCandidates.length,
+        afterGiveawayFilter: stages.afterGiveawayFilter.length,
+        afterQualityFilter: stages.afterQualityFilter.length,
+        afterNotEnteredFilter: stages.afterNotEnteredFilter.length,
+      },
+      uniquePosts: uniqueCandidates.map((p) => ({
+        id: p.id,
+        authorHandle: p.authorHandle,
+        likes: p.likes,
+        retweets: p.retweets,
+        authorFollowers: p.authorFollowers,
+        createdAt: p.createdAt,
+        url: p.url,
+        text: p.text,
+        passedGiveawayFilter: giveawayPassedIds.has(p.id),
+        passedQualityFilter: qualityPassedIds.has(p.id),
+        passedNotEnteredFilter: notEnteredPassedIds.has(p.id),
+      })),
+    };
+
+    fs.writeFileSync(dumpPath, JSON.stringify(payload, null, 2), 'utf-8');
+    logger.info(`Saved search snapshot to ${dumpPath}`);
+  } catch (err) {
+    logger.warn('Failed to save search snapshot', { err });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -53,7 +113,11 @@ export async function hunt(config: HunterConfig): Promise<EntryResult[]> {
   const queriesToRun = GIVEAWAY_QUERIES.slice(0, 5); // cap to 5 queries per run
   for (const query of queriesToRun) {
     const posts = await searchGiveawayPosts(query, 20);
-    allCandidates.push(...posts);
+    const normalizedPosts: GiveawayPost[] = posts.map((post) => ({
+      ...post,
+      url: post.url ?? tweetUrl(post.authorHandle, post.id),
+    }));
+    allCandidates.push(...normalizedPosts);
     await sleep(1500); // brief pause between searches
   }
 
@@ -62,10 +126,21 @@ export async function hunt(config: HunterConfig): Promise<EntryResult[]> {
   logger.info(`Found ${unique.length} unique posts across ${queriesToRun.length} queries`);
 
   // ── Step 3: Filter and score ─────────────────────────────
-  const candidates = unique
-    .filter((p) => isGiveawayPost(p))
-    .filter((p) => meetsQualityThreshold(p, config))
-    .filter((p) => !hasEnteredGiveaway(p.id))
+  const afterGiveawayFilter = unique.filter((p) => isGiveawayPost(p));
+  const afterQualityFilter = afterGiveawayFilter.filter((p) => meetsQualityThreshold(p, config));
+  const afterNotEnteredFilter = afterQualityFilter.filter((p) => !hasEnteredGiveaway(p.id));
+
+  dumpSearchSnapshot(queriesToRun, allCandidates, unique, {
+    afterGiveawayFilter,
+    afterQualityFilter,
+    afterNotEnteredFilter,
+  });
+
+  logger.info(
+    `Filter breakdown: unique=${unique.length} -> giveaway=${afterGiveawayFilter.length} -> quality=${afterQualityFilter.length} -> not-entered=${afterNotEnteredFilter.length}`
+  );
+
+  const candidates = afterNotEnteredFilter
     .map((p) => ({ post: p, score: scoreGiveaway(p) }))
     .sort((a, b) => b.score - a.score)
     .slice(0, config.maxGiveawaysPerRun)

@@ -16,7 +16,9 @@
     "dotenv": "^16.4.5",
     "winston": "^3.13.0",
     "lowdb": "^7.0.1",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "puppeteer": "^22.8.0",
+    "xactions": "latest"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",

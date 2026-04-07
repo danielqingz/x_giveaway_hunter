@@ -7,6 +7,7 @@ import { loadConfig, validateEnv } from './config';
 import { hunt } from './hunter';
 import { getStats } from './utils/state';
 import { logger } from './utils/logger';
+import { closeBrowser } from './actions/xactions-client';
 
 const args = process.argv.slice(2);
 const command = args[0] ?? 'hunt';
@@ -70,4 +71,6 @@ Setup:
 main().catch((err) => {
   logger.error('Fatal error', { err });
   process.exit(1);
+}).finally(() => {
+  closeBrowser().catch(() => {});
 });

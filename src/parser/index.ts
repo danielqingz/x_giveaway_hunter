@@ -25,11 +25,13 @@ const LIKE_PATTERNS = [
 ];
 
 const RETWEET_PATTERNS = [
-  /\bretweet\b/gi,
-  /\brt\s+(this|to\s+enter|to\s+win)/gi,
-  /\bshare\s+(this|the)\s+(post|tweet)/gi,
-  /\d+\.\s*rt\b/gi,
-  /\d+\.\s*retweet/gi,
+  /\bretweet\b/i,
+  /\brepost\b/i,
+  /\brt\s+(this|to\s+enter|to\s+win)/i,
+  /\bshare\s+(this|the)\s+(post|tweet)/i,
+  /\d+\.\s*rt\b/i,
+  /\d+\.\s*retweet/i,
+  /\blike\s*[\+&]\s*(retweet|repost)\b/i,
 ];
 
 const COMMENT_PATTERNS = [
@@ -73,8 +75,8 @@ const SPAM_INDICATORS = [
 
 export function isGiveawayPost(post: GiveawayPost): boolean {
   const text = post.text.toLowerCase();
-  const hasKeyword = GIVEAWAY_KEYWORDS.some((p) => p.test(text));
-  const isSpam = SPAM_INDICATORS.some((p) => p.test(text));
+  const hasKeyword = matchesAny(text, GIVEAWAY_KEYWORDS);
+  const isSpam = matchesAny(text, SPAM_INDICATORS);
 
   if (isSpam) {
     logger.debug(`Post ${post.id} flagged as potential spam, skipping.`);
@@ -92,6 +94,7 @@ function extractFollowTargets(text: string, authorHandle: string): string[] {
   const targets = new Set<string>();
 
   for (const pattern of FOLLOW_PATTERNS) {
+    pattern.lastIndex = 0;
     const matches = [...text.matchAll(pattern)];
     for (const match of matches) {
       if (match[1]) {
@@ -103,7 +106,7 @@ function extractFollowTargets(text: string, authorHandle: string): string[] {
   // If the pattern says "follow us" without a specific handle, follow the author
   const followUs = /follow\s+us|following\s+us/i.test(text);
   const noExplicitTarget = targets.size === 0;
-  const hasFollowMention = FOLLOW_PATTERNS.slice(0, 2).some((p) => p.test(text)) === false &&
+  const hasFollowMention = matchesAny(text, FOLLOW_PATTERNS.slice(0, 2)) === false &&
     /\bfollow\b/i.test(text);
 
   if ((followUs || (hasFollowMention && noExplicitTarget)) && authorHandle) {
@@ -119,9 +122,16 @@ function extractFollowTargets(text: string, authorHandle: string): string[] {
 }
 
 function extractCommentText(text: string, defaultComment: string): string | null {
-  const needsComment = COMMENT_PATTERNS.some((p) => p.test(text));
+  const needsComment = matchesAny(text, COMMENT_PATTERNS);
   if (!needsComment) return null;
   return defaultComment;
+}
+
+function matchesAny(text: string, patterns: RegExp[]): boolean {
+  return patterns.some((p) => {
+    p.lastIndex = 0;
+    return p.test(text);
+  });
 }
 
 export function parseRequirements(
@@ -131,10 +141,10 @@ export function parseRequirements(
   const text = post.text;
 
   const followTargets = extractFollowTargets(text, post.authorHandle);
-  const needsLike = LIKE_PATTERNS.some((p) => p.test(text));
-  const needsRetweet = RETWEET_PATTERNS.some((p) => p.test(text));
+  const needsLike = matchesAny(text, LIKE_PATTERNS);
+  const needsRetweet = matchesAny(text, RETWEET_PATTERNS);
   const commentText = extractCommentText(text, defaultComment);
-  const needsTag = TAG_PATTERNS.some((p) => p.test(text));
+  const needsTag = matchesAny(text, TAG_PATTERNS);
 
   const requirements: EntryRequirements = {
     follow: followTargets,
