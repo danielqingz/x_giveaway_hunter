@@ -1,0 +1,33 @@
+{
+  "name": "x-giveaway-hunter",
+  "version": "1.0.0",
+  "description": "Automatically find and enter X (Twitter) giveaways using XActions MCP",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "hunt": "ts-node src/index.ts hunt",
+    "dry-run": "ts-node src/index.ts hunt --dry-run",
+    "demo": "ts-node src/demo.ts",
+    "test": "jest --passWithNoTests",
+    "lint": "eslint src/**/*.ts"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "winston": "^3.13.0",
+    "lowdb": "^7.0.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.5",
+    "ts-node": "^10.9.2",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.12",
+    "ts-jest": "^29.1.5",
+    "eslint": "^9.5.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
